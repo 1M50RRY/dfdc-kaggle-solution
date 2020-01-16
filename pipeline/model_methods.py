@@ -190,7 +190,8 @@ def validate_vid(net, X_test, y_train, loss, metric, device, batch_size, fast_mt
              show_graphic=False, 
              inference=None,
              checkpoint=None,
-             delimeter=5
+             delimeter=5,
+             remove_noise=False
             ):
 
     val_loss = []
@@ -202,19 +203,21 @@ def validate_vid(net, X_test, y_train, loss, metric, device, batch_size, fast_mt
             try:
                 video = X_test + '\\' + filename
 
-                X_batch = torch.FloatTensor(extract_faces(video, fast_mtcnn, transforms, limit=batch_size, delimeter=delimeter)).to(device)
+                X_batch = torch.FloatTensor(extract_faces(video, fast_mtcnn, transforms, limit=batch_size, delimeter=delimeter, remove_noise=remove_noise)).to(device)
                 y_batch = torch.tensor([y_train[y_train.name == filename.split('.')[0]].label.values[0]]*len(X_batch)).to(device)
 
                 if (len(X_batch) == len(y_batch) and len(X_batch) > 0):
+                    test_preds = net(X_batch)
+
+                    test_loss_value = loss(test_preds, y_batch)
+                    #test_loss_value.backward()
+                    val_loss.append(float(test_loss_value.mean()))
+
                     if inference:
                         #test_preds = net.inference(X_batch)
-                        test_preds = inference(net(X_batch))
+                        test_preds = inference(test_preds) #inference(net(X_batch))
                         #test_preds = nn.functional.sigmoid(net(X_batch))
-                    else:
-                        test_preds = net(X_batch)
-                        
-                    test_loss_value = loss(test_preds, y_batch).cpu().detach().numpy()
-                    val_loss.append(test_loss_value.mean())
+                    
                     
                     
                     if show_graphic:
@@ -245,7 +248,6 @@ def validate_vid(net, X_test, y_train, loss, metric, device, batch_size, fast_mt
 
             except Exception as e:
                 print(str(e))
-                continue
 
             gc.collect()
         #return val_metrics, val_metrics_y
@@ -269,7 +271,8 @@ def train_vid(net, loss, optimizer, scheduler, X_train, X_test, y_train, metric,
             useScheduler=True,
             checkpoint=None,
             limit=10,
-            delimeter=5
+            delimeter=50,
+            remove_noise=False
          ):   
 
     test_metrics_history = []
@@ -295,7 +298,7 @@ def train_vid(net, loss, optimizer, scheduler, X_train, X_test, y_train, metric,
 
                 video = X_train + '\\' + filename
 
-                X_batch = torch.FloatTensor(extract_faces(video, fast_mtcnn, transforms, limit=limit, delimeter=delimeter)).to(device)
+                X_batch = torch.FloatTensor(extract_faces(video, fast_mtcnn, transforms, limit=limit, delimeter=delimeter, remove_noise=remove_noise)).to(device)
                 y_batch = torch.tensor([y_train[y_train.name == filename.split('.')[0]].label.values[0]]*len(X_batch)).to(device)
                 
                 if (len(X_batch) == len(y_batch) and len(X_batch) > 0):
@@ -320,7 +323,7 @@ def train_vid(net, loss, optimizer, scheduler, X_train, X_test, y_train, metric,
                 print(str(e))
                     
         test_metric_value, test_loss_value = validate_vid(net, X_test, y_train, loss, metric, device, limit, fast_mtcnn, transforms,
-                                            inference=inference, checkpoint=checkpoint)
+                                            inference=inference, checkpoint=checkpoint, remove_noise=remove_noise)
                                             
         mean_metrics = np.asarray(train_metrics).mean()
         mean_loss = np.asarray(train_loss).mean()

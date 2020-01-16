@@ -64,7 +64,7 @@ class FastMTCNN(object):
         
         return faces
 
-def extract_faces(video_path, fast_mtcnn, transforms, limit=1, delimeter=1):
+def extract_faces(video_path, fast_mtcnn, transforms, resnet=None, remove_noise=False, limit=1, delimeter=1):
     frames = []
     #delimeter = randint(1, 20)
     try:
@@ -81,13 +81,31 @@ def extract_faces(video_path, fast_mtcnn, transforms, limit=1, delimeter=1):
             if j % delimeter == 0:
                 frame = v_cap.read()
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                #frame = cv2.fastNlMeansDenoisingColored(frame,None,10,10,7,21)
                 frame = Image.fromarray(frame)
                 frames.append(frame)
 
         faces = fast_mtcnn(frames)
+
         v_cap.stop()
-        
-        return [transforms(face).numpy() for face in faces]
+
+        if resnet:
+             # Generate facial feature vectors using a pretrained model
+            embeddings = resnet(faces)
+
+            # Calculate centroid for video and distance of each face's feature vector from centroid
+            centroid = embeddings.mean(dim=0)
+            x = (embeddings - centroid).norm(dim=1).cpu().numpy()
+
+            return x
+
+        else:
+            faces = [transforms(Image.fromarray(cv2.fastNlMeansDenoisingColored(np.asarray(face),None,10,10,7,21))).numpy() for face in faces] if remove_noise else [transforms(face).numpy() for face in faces]
+            if len(faces) > 0:
+                return faces
+            else:
+                return [transforms(frame).numpy() for frame in frames]
+
     except Exception as e:
         print(str(e))
         return [transforms(frame).numpy() for frame in frames]
