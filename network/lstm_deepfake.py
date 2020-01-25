@@ -32,9 +32,11 @@ class LSTMDF(nn.Module):
     def __init__(self, dropout=0.0):
         super(LSTMDF, self).__init__()
 
+        self.dropout = dropout
+
         self.model = return_pytorch04_xception()
-        self.lstm = nn.LSTM(1000, 512, 2, dropout=dropout, batch_first = True)
-        self.dp = nn.Dropout(dropout)
+        self.lstm = nn.LSTM(1000, 512, 2, dropout=self.dropout, batch_first = True)
+        self.dp = nn.Dropout(self.dropout)
         self.fc = nn.Linear(512, 2)
 
     def forward(self, x):
@@ -42,6 +44,7 @@ class LSTMDF(nn.Module):
         x = x.unsqueeze(0)
         x, _ = self.lstm(x)
         x = x.squeeze(0)
+        self.dp(x)
         x = self.fc(x)
         
         return x

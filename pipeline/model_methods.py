@@ -26,7 +26,7 @@ from facenet_pytorch import MTCNN, InceptionResnetV1
 from imutils.video import FileVideoStream
 import gc
 import glob
-from pipeline.image_extracting import extract_faces
+from pipeline.image_extracting import extract_faces, extract_faces_dlib, predict_on_video
 
 def make_preds(net, x_batch):
     result = []
@@ -190,23 +190,36 @@ def validate_vid(net, X_test, y_train, loss, metric, device, batch_size, fast_mt
              show_graphic=False, 
              inference=None,
              checkpoint=None,
-             delimeter=5,
+             delimeter=20,
              remove_noise=False
             ):
 
     val_loss = []
     val_metrics = []
+    val_metrics_ll = []
+    val_metrics_ll_y = []
     net.eval()
 
     with torch.no_grad():
         for filename in tqdm.tqdm_notebook(os.listdir(X_test)):
             try:
                 video = X_test + '\\' + filename
+                y = y_train[y_train.name == filename.split('.')[0]].label.values[0]
 
-                X_batch = torch.FloatTensor(extract_faces(video, fast_mtcnn, transforms, limit=batch_size, delimeter=delimeter, remove_noise=remove_noise)).to(device)
-                y_batch = torch.tensor([y_train[y_train.name == filename.split('.')[0]].label.values[0]]*len(X_batch)).to(device)
+                X_batch = torch.FloatTensor(extract_faces_dlib(video, fast_mtcnn, transforms, limit=batch_size, delimeter=delimeter, remove_noise=remove_noise)).to(device)
 
-                if (len(X_batch) == len(y_batch) and len(X_batch) > 0):
+                if len(X_batch) == 0:
+                    X_batch = torch.FloatTensor(extract_faces(video, fast_mtcnn, transforms, limit=batch_size, delimeter=delimeter, remove_noise=remove_noise)).to(device)
+
+                    if len(X_batch) == 0:
+                        print("Undetected", y)
+                        val_metrics.append(int(1 == y))
+                        continue
+
+                y_batch = torch.tensor([y]*len(X_batch)).to(device)
+                #print(len(X_batch), len(y_batch))
+                if (len(X_batch) == len(y_batch)):
+                    
                     test_preds = net(X_batch)
 
                     test_loss_value = loss(test_preds, y_batch)
@@ -229,7 +242,7 @@ def validate_vid(net, X_test, y_train, loss, metric, device, batch_size, fast_mt
                         plt.hist(submission.label, 20)
                         plt.show()
 
-                    metrics = metric(test_preds[:, 1:], y_batch) + 0.0001
+                    metrics = metric(test_preds[:, 1:], y_batch)
                     
                     val_metrics.append(round(metrics))
                     
@@ -290,16 +303,26 @@ def train_vid(net, loss, optimizer, scheduler, X_train, X_test, y_train, metric,
         train_loss = []
         train_metrics = []
         
-        for i in tqdm.tqdm_notebook(order):
+        for start_index in tqdm.tqdm_notebook(range(0, len(x_train), batch_size)):
             try:
                 optimizer.zero_grad()
 
-                filename = x_train[i]
+                X_batch = []
+                y_batch = []
 
-                video = X_train + '\\' + filename
+                batch_indexes = order[start_index:start_index+batch_size]
 
-                X_batch = torch.FloatTensor(extract_faces(video, fast_mtcnn, transforms, limit=limit, delimeter=delimeter, remove_noise=remove_noise)).to(device)
-                y_batch = torch.tensor([y_train[y_train.name == filename.split('.')[0]].label.values[0]]*len(X_batch)).to(device)
+                for i in batch_indexes:
+                    filename = x_train[i]
+                    video = X_train + '\\' + filename
+                    
+                    faces = extract_faces(video, fast_mtcnn, transforms, limit=limit, delimeter=delimeter, remove_noise=remove_noise)
+
+                    X_batch += faces
+                    y_batch += [y_train[y_train.name == filename.split('.')[0]].label.values[0]]*len(faces)
+                
+                X_batch = torch.FloatTensor(X_batch).to(device)
+                y_batch = torch.tensor(y_batch).to(device)
                 
                 if (len(X_batch) == len(y_batch) and len(X_batch) > 0):
                     if useInference:
@@ -316,14 +339,14 @@ def train_vid(net, loss, optimizer, scheduler, X_train, X_test, y_train, metric,
                     train_loss.append(float(loss_value.mean()))
                     #train_metrics_y.append(int(y_batch[0]))
                     #train_metrics.append(round(float(torch.mean(inference(preds)[:, 1:]))))
-                    train_metrics.append(round(metric(inference(preds)[:, 1:], y_batch) + 0.0001 ))
+                    train_metrics.append(round(metric(inference(preds)[:, 1:], y_batch)))
                 else:
                     print("Unable to make an epoch: " + filename + ". " + str(len(y_batch)) + " found in y_batch. " + str(len(X_batch)) + " batch size.")
             except Exception as e:
                 print(str(e))
                     
-        test_metric_value, test_loss_value = validate_vid(net, X_test, y_train, loss, metric, device, limit, fast_mtcnn, transforms,
-                                            inference=inference, checkpoint=checkpoint, remove_noise=remove_noise)
+        test_metric_value, test_loss_value = validate_vid(net, X_test, y_train, loss, metric, device, 10, fast_mtcnn, transforms,
+                                            inference=inference, checkpoint=checkpoint, remove_noise=False)
                                             
         mean_metrics = np.asarray(train_metrics).mean()
         mean_loss = np.asarray(train_loss).mean()
@@ -339,3 +362,123 @@ def train_vid(net, loss, optimizer, scheduler, X_train, X_test, y_train, metric,
         
     return test_metrics_history, test_loss_history
 
+# ---------------------------------------------------------------------------------------------------------------------
+
+def validate_vid_bf(net, X_test, y_train, loss, metric, device, batch_size, face_extractor, print_results=False, checkpoint=None):
+
+    val_metrics = []
+    val_metrics_ll = []
+    val_metrics_ll_y = []
+    net.eval()
+
+    with torch.no_grad():
+        for filename in tqdm.tqdm_notebook(os.listdir(X_test)):
+            #try:
+            video = X_test + '\\' + filename
+
+            y = y_train[y_train.name == filename.split('.')[0]].label.values[0]
+
+            test_preds = predict_on_video(net, device, video, face_extractor, batch_size=batch_size)
+
+            if type(test_preds) == float:
+                if print_results:
+                    print(0.5, y)
+                val_metrics.append(round(1 == y))
+                continue
+
+            metrics = metric(test_preds, y)
+            val_metrics.append(round(metrics))
+            
+            if print_results:
+                print(test_preds.mean(), y)
+
+            #except Exception as e:
+                #print(str(e))
+
+            gc.collect()
+        #return val_metrics, val_metrics_y
+        mean_metrics = np.asarray(val_metrics).mean()
+        
+        if checkpoint is not None and np.asarray(val_metrics).mean() >= checkpoint:
+            torch.save(net.state_dict(), str(mean_metrics) + '.pth')
+            #torch.save(net, str(mean_metrics) + ' ' + str(mean_loss) + '.p')
+            
+        print('Validation: metrics ', mean_metrics)
+
+        return mean_metrics
+
+def train_vid_bf(net, loss, optimizer, scheduler, X_train, X_test, y_train, metric, device, face_extractor, 
+            frames=17,
+            epochs=100, 
+            batch_size=100, 
+            del_net=False,   
+            useScheduler=True,
+            checkpoint=None
+         ):   
+
+    test_metrics_history = []
+    test_loss_history = []
+    x_train = os.listdir(X_train)
+
+    for _ in tqdm.tqdm_notebook(range(epochs)):
+        order = np.random.permutation(len(x_train))
+
+        if useScheduler:
+            scheduler.step()
+
+        net.train()
+        
+        train_loss = []
+        train_metrics = []
+        
+        for start_index in tqdm.tqdm_notebook(range(0, len(x_train), batch_size)):
+            #try:
+            optimizer.zero_grad()
+
+            '''X_batch = []
+            y_batch = []'''
+
+            batch_indexes = order[start_index:start_index+batch_size]
+
+            for i in batch_indexes:
+                filename = x_train[i]
+                video = X_train + '\\' + filename
+                
+                X_batch = predict_on_video(net, device, video, face_extractor, batch_size=frames, train=True)
+                y = y_train[y_train.name == filename.split('.')[0]].label.values[0]
+
+                if type(X_batch) == float:
+                    continue
+
+                '''X_batch.append(preds)
+                y_batch.append([float(y)]*len(preds))'''
+
+                y_batch = [float(y)]*len(X_batch)
+
+                train_metrics.append(round(metric(X_batch.detach().cpu().numpy(), y)))
+
+                #X_batch = torch.FloatTensor(X_batch).to(device)
+                y_batch = torch.tensor(y_batch).to(device)
+
+                loss_value = loss(X_batch, y_batch)
+                loss_value.backward()
+
+                optimizer.step()
+                
+                train_loss.append(float(loss_value.mean()))
+            #except Exception as e:
+                #print(str(e))
+                    
+        test_metric_value = validate_vid_bf(net, X_test, y_train, loss, metric, device, frames, face_extractor)
+        mean_metrics = np.asarray(train_metrics).mean()
+        mean_loss = np.asarray(train_loss).mean()
+        print('Train: metrics ', mean_metrics, 'loss ', mean_loss)
+        
+        test_metrics_history.append(test_metric_value)
+    
+    if del_net:
+        del net
+
+    gc.collect()
+        
+    return test_metrics_history
