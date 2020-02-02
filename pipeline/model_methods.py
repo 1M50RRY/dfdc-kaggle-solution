@@ -43,7 +43,8 @@ def validate_img(net, X_test, y_train, loss, metric, device, batch_size,
              show_results=False, 
              show_graphic=False, 
              inference=None,
-             checkpoint=None
+             checkpoint=None,
+             reverse=False
             ):
     val_loss = []
     val_metrics = []
@@ -53,18 +54,25 @@ def validate_img(net, X_test, y_train, loss, metric, device, batch_size,
         for batch_idx in tqdm.tqdm_notebook(range(len(X_test))):
             #print(batch_idx)
             try:
-                X_batch, target = next(dataloader_iterator)
+                X_batch, y_batch = next(dataloader_iterator)
             except:
                 dataloader_iterator = iter(X_test)
-                X_batch, target = next(dataloader_iterator)
+                X_batch, y_batch = next(dataloader_iterator)
 
             idx = batch_size * (batch_idx + 1)
             samples = X_test.dataset.samples[idx - batch_size:idx]
             filenames = [i[0].split('\\')[-1].split('.')[0] for i in samples]
 
+            if reverse:
+                for i in range(len(y_batch)):
+                    y_batch[i] = 1 if y_batch[i] == 0 else 0
+
             if len(filenames) > 0:
-                y_batch = torch.tensor([y_train[y_train.name == filename].label.values[0] 
-                                        for filename in filenames]).to(device)
+                #y_batch = torch.FloatTensor([[int('real' not in sample[0])] for sample in samples]).to(device)
+                '''torch.tensor([y_train[y_train.name == filename].label.values[0] 
+                                        for filename in filenames]).to(device)'''
+                y_batch = y_batch.float().to(device)
+
                 if inference:
                     #test_preds = net.inference(X_batch.to(device))
                     test_preds = inference(net(X_batch.to(device)))
@@ -97,24 +105,30 @@ def validate_img(net, X_test, y_train, loss, metric, device, batch_size,
                     plt.show()
                 
                 metrics = metric(test_preds, y_batch)
-                val_metrics.append(metrics.cpu().detach().numpy().mean())
-                
+                val_metrics.append(metrics)
+               
         mean_metrics = np.asarray(val_metrics).mean()
         mean_loss = np.asarray(val_loss).mean()
         
+        
+
         if checkpoint is not None and np.asarray(val_metrics).mean() >= checkpoint:
-            torch.save(net, str(mean_metrics) + ' ' + str(mean_loss) + '.h5')
+            torch.save(net.state_dict(), str(mean_metrics) + ' ' + str(mean_loss) + '.pth')
+            #torch.save(net, str(mean_metrics) + ' ' + str(mean_loss) + '.h5')
             
         print('Validation: metrics ', mean_metrics, 'loss ', mean_loss)
 
+        gc.collect()
+
         return mean_metrics, mean_loss
 
-def train_img(net, loss, optimizer, scheduler, X_train, X_test, y_train, metric, device, epochs=100, batch_size=100, 
+def train_img(net, loss, optimizer, scheduler, X_train, X_test, y_train, metric, device, val_metric, face_extractor, epochs=100, batch_size=100, 
           del_net=False, 
           useInference=False, 
           inference=None, 
           useScheduler=True,
-          checkpoint=None
+          checkpoint=None,
+          reverse=False
          ):   
     test_metrics_history = []
     test_loss_history = []
@@ -122,35 +136,42 @@ def train_img(net, loss, optimizer, scheduler, X_train, X_test, y_train, metric,
 
     for epoch in tqdm.tqdm_notebook(range(epochs)):
         dataloader_iterator = iter(X_train)
-        if useScheduler:
-            scheduler.step()
         net.train()
 		
         train_loss = []
         train_metrics = []
 		
-        for batch_idx in tqdm.tqdm_notebook(range(len(X_train))):
+        for batch_idx in tqdm.tqdm_notebook(range(len(X_train))):   
             try:
-                X_batch, target = next(dataloader_iterator)
+                X_batch, y_batch = next(dataloader_iterator)
             except:
                 dataloader_iterator = iter(X_train)
-                X_batch, target = next(dataloader_iterator)
+                X_batch, y_batch = next(dataloader_iterator)
+
+            if reverse:
+                for i in range(len(y_batch)):
+                    y_batch[i] = 1 if y_batch[i] == 0 else 0
                 
             idx = batch_size * (batch_idx + 1)
             samples = X_train.dataset.samples[idx - batch_size:idx]
             filenames = [i[0].split('\\')[-1].split('.')[0] for i in samples]
-            if len(filenames) > 0 and len(X_batch) == batch_size:
+            if len(y_batch) > 0 and len(X_batch) == batch_size:
                 optimizer.zero_grad()
                 
-                y_batch = []
+                '''y_batch = []
                 for filename in filenames:
                     values = y_train[y_train.name == filename].label.values
                     if len(values) == 0:
                         y_batch.append(0)
                     else:
                         y_batch.append(values[0])
-                        
-                y_batch = torch.tensor(y_batch).to(device)
+                print(target)     '''
+                #y_batch = torch.FloatTensor([[int('real' not in sample[0])] for sample in samples]).to(device)
+
+                y_batch = list(y_batch.numpy())
+                for i in range(len(y_batch)):
+                    y_batch[i] = [float(y_batch[i])]
+                y_batch = torch.FloatTensor(y_batch).to(device)
                 
                 if (len(X_batch) == len(y_batch)):
                     if useInference:
@@ -158,19 +179,25 @@ def train_img(net, loss, optimizer, scheduler, X_train, X_test, y_train, metric,
                         #preds = net.inference(X_batch.to(device))
                     else:
                         preds = net(X_batch.to(device))
+                    '''print(y_batch)
+                    print(preds)'''
+                    metrics = metric(preds, y_batch)
+                    train_metrics.append(metrics)
+
                     loss_value = loss(preds, y_batch)
                     loss_value.backward()
 
                     optimizer.step()
                     
                     train_loss.append(float(loss_value.mean()))
-                    metrics = metric(inference(preds), y_batch)
-                    train_metrics.append(metrics.cpu().detach().numpy().mean())
             else:
                 print("Unable to make an epoch: " + str(len(filenames)) + " found in y_train. " + str(len(X_batch)) + " batch size.")
-                    
-        test_metric_value, test_loss_value = validate_img(net, X_test, y_train, loss, metric, device, batch_size,
-                                            inference=inference, checkpoint=checkpoint)
+
+       # reverse2 = not reverse
+        test_metric_value, test_loss_value = \
+            validate_vid_bf(net, X_test, y_train, val_metric[0], val_metric[1], device, 17, face_extractor, print_results=False, 
+                reverse=reverse, checkpoint=checkpoint)
+        #validate_img(net, X_test, y_train, loss, metric, device, 10, inference=nn.Sigmoid(), checkpoint=checkpoint)
 											
         mean_metrics = np.asarray(train_metrics).mean()
         mean_loss = np.asarray(train_loss).mean()
@@ -178,9 +205,15 @@ def train_img(net, loss, optimizer, scheduler, X_train, X_test, y_train, metric,
         
         test_loss_history.append(test_loss_value)
         test_metrics_history.append(test_metric_value)
+
+        if useScheduler:
+            scheduler.step(float(mean_loss))
         
     if del_net:
         del net
+
+    gc.collect()
+
     return test_metrics_history, test_loss_history
 
 
@@ -206,7 +239,7 @@ def validate_vid(net, X_test, y_train, loss, metric, device, batch_size, fast_mt
                 video = X_test + '\\' + filename
                 y = y_train[y_train.name == filename.split('.')[0]].label.values[0]
 
-                X_batch = torch.FloatTensor(extract_faces_dlib(video, fast_mtcnn, transforms, limit=batch_size, delimeter=delimeter, remove_noise=remove_noise)).to(device)
+                X_batch = []#torch.FloatTensor(extract_faces_dlib(video, fast_mtcnn, transforms, limit=batch_size, delimeter=delimeter, remove_noise=remove_noise)).to(device)
 
                 if len(X_batch) == 0:
                     X_batch = torch.FloatTensor(extract_faces(video, fast_mtcnn, transforms, limit=batch_size, delimeter=delimeter, remove_noise=remove_noise)).to(device)
@@ -316,7 +349,7 @@ def train_vid(net, loss, optimizer, scheduler, X_train, X_test, y_train, metric,
                     filename = x_train[i]
                     video = X_train + '\\' + filename
                     
-                    faces = extract_faces(video, fast_mtcnn, transforms, limit=limit, delimeter=delimeter, remove_noise=remove_noise)
+                    faces = extract_faces(video, fast_mtcnn, transforms, limit=batch_size, delimeter=delimeter, remove_noise=remove_noise)#extract_faces(video, fast_mtcnn, transforms, limit=limit, delimeter=delimeter, remove_noise=remove_noise)
 
                     X_batch += faces
                     y_batch += [y_train[y_train.name == filename.split('.')[0]].label.values[0]]*len(faces)
@@ -364,7 +397,7 @@ def train_vid(net, loss, optimizer, scheduler, X_train, X_test, y_train, metric,
 
 # ---------------------------------------------------------------------------------------------------------------------
 
-def validate_vid_bf(net, X_test, y_train, loss, metric, device, batch_size, face_extractor, print_results=False, checkpoint=None):
+def validate_vid_bf(net, X_test, y_train, loss, metric, device, batch_size, face_extractor, print_results=False, checkpoint=None, reverse=False):
 
     val_metrics = []
     val_metrics_ll = []
@@ -378,16 +411,24 @@ def validate_vid_bf(net, X_test, y_train, loss, metric, device, batch_size, face
 
             y = y_train[y_train.name == filename.split('.')[0]].label.values[0]
 
+            if reverse:
+                y = 1 if y == 0 else 0
+
             test_preds = predict_on_video(net, device, video, face_extractor, batch_size=batch_size)
 
             if type(test_preds) == float:
                 if print_results:
                     print(0.5, y)
-                val_metrics.append(round(1 == y))
+                val_metrics.append(int(1 == y))
+                val_metrics_ll.append(0.5)
+                val_metrics_ll_y.append(int(1 == y))
                 continue
 
             metrics = metric(test_preds, y)
             val_metrics.append(round(metrics))
+
+            val_metrics_ll.append(test_preds.mean())
+            val_metrics_ll_y.append(y)
             
             if print_results:
                 print(test_preds.mean(), y)
@@ -396,16 +437,17 @@ def validate_vid_bf(net, X_test, y_train, loss, metric, device, batch_size, face
                 #print(str(e))
 
             gc.collect()
-        #return val_metrics, val_metrics_y
-        mean_metrics = np.asarray(val_metrics).mean()
+
+        mean_metrics = loss(torch.FloatTensor(val_metrics_ll), torch.tensor(val_metrics_ll_y)) 
+        mean_loss = np.asarray(val_metrics).mean()
         
-        if checkpoint is not None and np.asarray(val_metrics).mean() >= checkpoint:
+        if checkpoint is not None and (mean_metrics <= checkpoint[0] or mean_loss >= checkpoint[1]):
             torch.save(net.state_dict(), str(mean_metrics) + '.pth')
             #torch.save(net, str(mean_metrics) + ' ' + str(mean_loss) + '.p')
             
-        print('Validation: metrics ', mean_metrics)
+        print('Validation: metrics ', mean_loss, 'loss: ', mean_metrics)
 
-        return mean_metrics
+        return mean_metrics, mean_loss
 
 def train_vid_bf(net, loss, optimizer, scheduler, X_train, X_test, y_train, metric, device, face_extractor, 
             frames=17,
@@ -435,8 +477,8 @@ def train_vid_bf(net, loss, optimizer, scheduler, X_train, X_test, y_train, metr
             #try:
             optimizer.zero_grad()
 
-            '''X_batch = []
-            y_batch = []'''
+            X_batch = []
+            y_batch = []
 
             batch_indexes = order[start_index:start_index+batch_size]
 
@@ -444,32 +486,30 @@ def train_vid_bf(net, loss, optimizer, scheduler, X_train, X_test, y_train, metr
                 filename = x_train[i]
                 video = X_train + '\\' + filename
                 
-                X_batch = predict_on_video(net, device, video, face_extractor, batch_size=frames, train=True)
+                preds = predict_on_video(net, device, video, face_extractor, batch_size=frames, train=True)
                 y = y_train[y_train.name == filename.split('.')[0]].label.values[0]
 
-                if type(X_batch) == float:
+                if type(preds) == float:
                     continue
 
-                '''X_batch.append(preds)
-                y_batch.append([float(y)]*len(preds))'''
+                X_batch.append(preds)
+                y_batch += [float(y)]*len(preds)
 
-                y_batch = [float(y)]*len(X_batch)
-
-                train_metrics.append(round(metric(X_batch.detach().cpu().numpy(), y)))
-
-                #X_batch = torch.FloatTensor(X_batch).to(device)
-                y_batch = torch.tensor(y_batch).to(device)
-
-                loss_value = loss(X_batch, y_batch)
-                loss_value.backward()
-
-                optimizer.step()
+                train_metrics.append(round(metric(preds.detach().cpu().numpy(), y)))
                 
-                train_loss.append(float(loss_value.mean()))
+            X_batch = torch.cat(X_batch).to(device)
+            y_batch = torch.tensor(y_batch).to(device)
+
+            loss_value = loss(X_batch, y_batch)
+            loss_value.backward()
+
+            optimizer.step()
+            
+            train_loss.append(float(loss_value.mean()))
             #except Exception as e:
                 #print(str(e))
                     
-        test_metric_value = validate_vid_bf(net, X_test, y_train, loss, metric, device, frames, face_extractor)
+        test_metric_value = validate_vid_bf(net, X_test, y_train, loss, metric, device, 17, face_extractor, checkpoint=checkpoint) 
         mean_metrics = np.asarray(train_metrics).mean()
         mean_loss = np.asarray(train_loss).mean()
         print('Train: metrics ', mean_metrics, 'loss ', mean_loss)

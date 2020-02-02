@@ -97,7 +97,7 @@ class VideoReader:
         try:
             frames = []
             idxs_read = []
-            for frame_idx in range(frame_idxs[0], frame_idxs[-1] + 1):
+            for frame_idx in range(0, frame_idxs[-1] + 1):
                 # Get the next frame, but don't decode if we're not using it.
                 ret = capture.grab()
                 if not ret:
