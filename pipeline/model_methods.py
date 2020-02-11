@@ -67,11 +67,17 @@ def validate_img(net, X_test, y_train, loss, metric, device, batch_size,
                 for i in range(len(y_batch)):
                     y_batch[i] = 1 if y_batch[i] == 0 else 0
 
+           # print(y_batch)
+
             if len(filenames) > 0:
                 #y_batch = torch.FloatTensor([[int('real' not in sample[0])] for sample in samples]).to(device)
                 '''torch.tensor([y_train[y_train.name == filename].label.values[0] 
                                         for filename in filenames]).to(device)'''
-                y_batch = y_batch.float().to(device)
+
+                y_batch = list(y_batch.numpy())
+                for i in range(len(y_batch)):
+                    y_batch[i] = [float(y_batch[i])]
+                y_batch = torch.FloatTensor(y_batch).to(device)
 
                 if inference:
                     #test_preds = net.inference(X_batch.to(device))
@@ -87,7 +93,7 @@ def validate_img(net, X_test, y_train, loss, metric, device, batch_size,
                     for i in range(int(len(test_preds) * 0.1)):
                         if show_results:
                             img = X_batch[i]
-                            plt.title(str(float(test_preds[i][1])) + ', ' + str(float(y_batch[i])) + ' | ' + filenames[i])
+                            plt.title(str(float(test_preds[i])) + ', ' + str(float(y_batch[i])) + ' | ' + filenames[i])
                             #plt.title(str(float(test_preds[i][0])) + ', ' + str(float(y_batch[i])))
                             plt.imshow(img.permute(1, 2, 0).numpy())
                             plt.show()
@@ -103,6 +109,7 @@ def validate_img(net, X_test, y_train, loss, metric, device, batch_size,
                     submission = pd.DataFrame(submission, columns=['label'])
                     plt.hist(submission.label, 20)
                     plt.show()
+
                 
                 metrics = metric(test_preds, y_batch)
                 val_metrics.append(metrics)
@@ -112,14 +119,14 @@ def validate_img(net, X_test, y_train, loss, metric, device, batch_size,
         
         
 
-        if checkpoint is not None and np.asarray(val_metrics).mean() >= checkpoint:
+        if checkpoint is not None and (mean_metrics >= checkpoint[1] or mean_loss <= checkpoint[0]):
             torch.save(net.state_dict(), str(mean_metrics) + ' ' + str(mean_loss) + '.pth')
             #torch.save(net, str(mean_metrics) + ' ' + str(mean_loss) + '.h5')
             
         print('Validation: metrics ', mean_metrics, 'loss ', mean_loss)
 
         gc.collect()
-
+        
         return mean_metrics, mean_loss
 
 def train_img(net, loss, optimizer, scheduler, X_train, X_test, y_train, metric, device, val_metric, face_extractor, epochs=100, batch_size=100, 
@@ -179,8 +186,8 @@ def train_img(net, loss, optimizer, scheduler, X_train, X_test, y_train, metric,
                         #preds = net.inference(X_batch.to(device))
                     else:
                         preds = net(X_batch.to(device))
-                    '''print(y_batch)
-                    print(preds)'''
+                    #print(y_batch)
+                    #print(preds)
                     metrics = metric(preds, y_batch)
                     train_metrics.append(metrics)
 
@@ -194,9 +201,13 @@ def train_img(net, loss, optimizer, scheduler, X_train, X_test, y_train, metric,
                 print("Unable to make an epoch: " + str(len(filenames)) + " found in y_train. " + str(len(X_batch)) + " batch size.")
 
        # reverse2 = not reverse
-        test_metric_value, test_loss_value = \
-            validate_vid_bf(net, X_test, y_train, val_metric[0], val_metric[1], device, 17, face_extractor, print_results=False, 
-                reverse=reverse, checkpoint=checkpoint)
+        test_metric_value, test_loss_value = validate_vid_bf(net, X_test, y_train, val_metric[0], val_metric[1], device, 17, face_extractor, print_results=False, reverse=reverse, checkpoint=checkpoint)
+        '''validate_img(net, X_test, y_train, loss, metric, device, 10, 
+            print_results=False, 
+            inference=inference,
+            checkpoint=checkpoint,
+            reverse=False
+        )'''
         #validate_img(net, X_test, y_train, loss, metric, device, 10, inference=nn.Sigmoid(), checkpoint=checkpoint)
 											
         mean_metrics = np.asarray(train_metrics).mean()
@@ -248,8 +259,9 @@ def validate_vid(net, X_test, y_train, loss, metric, device, batch_size, fast_mt
                         print("Undetected", y)
                         val_metrics.append(int(1 == y))
                         continue
+                print(len(X_batch))
 
-                y_batch = torch.tensor([y]*len(X_batch)).to(device)
+                y_batch = torch.tensor([y]*len(X_batch)).float().to(device)
                 #print(len(X_batch), len(y_batch))
                 if (len(X_batch) == len(y_batch)):
                     
@@ -275,7 +287,7 @@ def validate_vid(net, X_test, y_train, loss, metric, device, batch_size, fast_mt
                         plt.hist(submission.label, 20)
                         plt.show()
 
-                    metrics = metric(test_preds[:, 1:], y_batch)
+                    metrics = metric(test_preds, y_batch)
                     
                     val_metrics.append(round(metrics))
                     
@@ -397,7 +409,7 @@ def train_vid(net, loss, optimizer, scheduler, X_train, X_test, y_train, metric,
 
 # ---------------------------------------------------------------------------------------------------------------------
 
-def validate_vid_bf(net, X_test, y_train, loss, metric, device, batch_size, face_extractor, print_results=False, checkpoint=None, reverse=False):
+def validate_vid_bf(net, X_test, y_train, loss, metric, device, batch_size, face_extractor, fast_mtcnn=None, print_results=False, checkpoint=None, reverse=False):
 
     val_metrics = []
     val_metrics_ll = []
@@ -414,7 +426,7 @@ def validate_vid_bf(net, X_test, y_train, loss, metric, device, batch_size, face
             if reverse:
                 y = 1 if y == 0 else 0
 
-            test_preds = predict_on_video(net, device, video, face_extractor, batch_size=batch_size)
+            test_preds = predict_on_video(net, device, video, face_extractor, fast_mtcnn=fast_mtcnn, batch_size=batch_size)
 
             if type(test_preds) == float:
                 if print_results:
@@ -442,7 +454,7 @@ def validate_vid_bf(net, X_test, y_train, loss, metric, device, batch_size, face
         mean_loss = np.asarray(val_metrics).mean()
         
         if checkpoint is not None and (mean_metrics <= checkpoint[0] or mean_loss >= checkpoint[1]):
-            torch.save(net.state_dict(), str(mean_metrics) + '.pth')
+            torch.save(net.state_dict(), str(mean_metrics) + ' ' + str(mean_loss) + '.pth')
             #torch.save(net, str(mean_metrics) + ' ' + str(mean_loss) + '.p')
             
         print('Validation: metrics ', mean_loss, 'loss: ', mean_metrics)

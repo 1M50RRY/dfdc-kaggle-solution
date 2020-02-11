@@ -28,6 +28,10 @@ import gc
 from random import randint
 import dlib
 
+from albumentations import (
+    Resize
+)
+
 class DetectionPipeline:
     """Pipeline class for detecting faces in the frames of a video file."""
     
@@ -313,7 +317,7 @@ def make_square_image(img):
     return cv2.copyMakeBorder(img, t, b, l, r, cv2.BORDER_CONSTANT, value=0)
 
 
-def predict_on_video(model, device, video_path, face_extractor, batch_size=17, input_size=224, train=False, normalize_transform=torchvision.transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])):
+def predict_on_video(model, device, video_path, face_extractor, fast_mtcnn=None, batch_size=17, input_size=224, train=False, normalize_transform=torchvision.transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])):
     try:
         # Find the faces for N frames in the video.
         faces = face_extractor.process_video(video_path)
@@ -333,9 +337,9 @@ def predict_on_video(model, device, video_path, face_extractor, batch_size=17, i
                     # Resize to the model's required input size.
                     # We keep the aspect ratio intact and add zero
                     # padding if necessary.                    
-                    resized_face = isotropically_resize_image(face, input_size)
-                    resized_face = make_square_image(resized_face)
-
+                    #resized_face = isotropically_resize_image(face, input_size)
+                    #resized_face = make_square_image(resized_face)
+                    resized_face = torchvision.transforms.Resize((input_size, input_size))(Image.fromarray(face))
                     if n < batch_size:
                         x[n] = resized_face
                         n += 1
@@ -369,4 +373,68 @@ def predict_on_video(model, device, video_path, face_extractor, batch_size=17, i
     except Exception as e:
         print("Prediction error on video %s: %s" % (video_path, str(e)))
 
+    if fast_mtcnn:
+        transforms = torchvision.transforms.Compose([
+            torchvision.transforms.Resize((input_size, input_size)),
+            torchvision.transforms.ToTensor(),
+            torchvision.transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        ])
+        try:
+            faces = extract_faces(video_path, fast_mtcnn, transforms, resnet=None, remove_noise=False, limit=17, delimeter=10)
+
+            if len(faces) > 0:
+                with torch.no_grad():
+                    x = torch.FloatTensor(faces).to(device)
+                    y_pred = model(x)
+                    y_pred = torch.sigmoid(y_pred.squeeze())
+                    return y_pred.detach().cpu().numpy()
+
+        except:
+            pass
+        
     return 0.5
+
+
+
+def crop_faces(video_path, face_extractor, batch_size=1, input_size=256):
+    try:
+        # Find the faces for N frames in the video.
+        faces = face_extractor.process_video(video_path)
+
+        # Only look at one face per frame.
+        face_extractor.keep_only_best_face(faces)
+        
+        if len(faces) > 0:
+            # NOTE: When running on the CPU, the batch size must be fixed
+            # or else memory usage will blow up. (Bug in PyTorch?)
+            x = np.zeros((batch_size, input_size, input_size, 3), dtype=np.uint8)
+
+            # If we found any faces, prepare them for the model.
+            n = 0
+            for frame_data in faces:
+                for face in frame_data["faces"]:
+                    # Resize to the model's required input size.
+                    # We keep the aspect ratio intact and add zero
+                    # padding if necessary.                    
+                    #resized_face = isotropically_resize_image(face, input_size)
+                    #resized_face = make_square_image(resized_face)
+                    resized_face = torchvision.transforms.Resize((input_size, input_size))(Image.fromarray(face))
+                    if n < batch_size:
+                        x[n] = resized_face
+                        n += 1
+                    else:
+                        #print("WARNING: have %d faces but batch size is %d" % (n, batch_size))
+                        pass
+                    
+                    # Test time augmentation: horizontal flips.
+                    # TODO: not sure yet if this helps or not
+                    #x[n] = cv2.flip(resized_face, 1)
+                    #n += 1
+
+            if n > 0:
+                return x[:n][0]
+
+    except Exception as e:
+        print("Prediction error on video %s: %s" % (video_path, str(e)))
+        
+    return None

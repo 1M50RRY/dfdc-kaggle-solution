@@ -33,25 +33,57 @@ from albumentations import (
     HorizontalFlip, IAAPerspective, ShiftScaleRotate, CLAHE, RandomRotate90,
     Transpose, ShiftScaleRotate, Blur, OpticalDistortion, GridDistortion, HueSaturationValue,
     IAAAdditiveGaussianNoise, GaussNoise, MotionBlur, MedianBlur, RandomBrightnessContrast, IAAPiecewiseAffine,
-    IAASharpen, IAAEmboss, Flip, OneOf, Compose, ImageCompression, Resize, RandomScale, RandomFog, RandomShadow
+    IAASharpen, IAAEmboss, Flip, OneOf, Compose, ImageCompression, Resize, RandomScale, RandomFog, RandomShadow, Downscale, JpegCompression, CenterCrop
 )
 from pipeline.helpers.balanced_batch_sampler import BalancedBatchSampler, make_weights_for_balanced_classes
 
 def strong_aug(p=.5):
     return Compose([
-        ImageCompression(quality_lower=20, quality_upper=80, p=0.3),
+        #Resize(224, 224),
+        CenterCrop(224, 224),
         OneOf([
-            OneOf([IAAAdditiveGaussianNoise(),GaussNoise(),], p=0.3),
-            #OneOf([CLAHE(clip_limit=2),IAASharpen(),IAAEmboss(),RandomBrightnessContrast(),], p=0.3),
-            #OneOf([MotionBlur(p=1),MedianBlur(blur_limit=3, p=1),Blur(blur_limit=3, p=1),], p=0.2),
-            HueSaturationValue(p=0.2),
-            ], p=0.5),
-        OneOf([ShiftScaleRotate(shift_limit=0.0625, scale_limit=0.3, rotate_limit=45, p=1),RandomScale(scale_limit=0.5, p=1)], p=0.3),
-        #RandomRotate90(),
+            ShiftScaleRotate(shift_limit=0.0625, scale_limit=0.25, rotate_limit=45, p=1),
+            RandomScale(scale_limit=0.3, p=1),
+            JpegCompression(quality_lower=20, quality_upper=80, p=1),
+        ], p=0.3),
+        OneOf([
+            OneOf([IAAAdditiveGaussianNoise(),GaussNoise(),], p=1),
+            OneOf([CLAHE(clip_limit=2),IAASharpen(),IAAEmboss(),RandomBrightnessContrast(),], p=1),
+            #OneOf([MotionBlur(p=1),MedianBlur(blur_limit=3, p=1),Blur(blur_limit=3, p=1),], p=1),
+            ], p=0.2),
+        RandomRotate90(p=0.2),
+        HueSaturationValue(p=0.2),
         HorizontalFlip(p=0.5),
         #OneOf([OpticalDistortion(p=0.3),GridDistortion(p=.1),IAAPiecewiseAffine(p=0.3),], p=0.2),
         Resize(224, 224),
     ], p=p)
+
+
+'''
+def strong_aug(p=.5):
+    return Compose([
+        #Resize(224, 224),
+        CenterCrop(224, 224),
+         OneOf([
+            ShiftScaleRotate(shift_limit=0.0625, scale_limit=0.25, rotate_limit=45, p=1),
+            RandomScale(scale_limit=0.3, p=1),
+            ], p=0.3),
+        OneOf([
+            Downscale(scale_min=0.25, scale_max=0.75, p=1.0),
+            JpegCompression(quality_lower=8, quality_upper=30, p=1),
+        ], p=0.3),
+        OneOf([
+            OneOf([IAAAdditiveGaussianNoise(),GaussNoise(),], p=1),
+            OneOf([CLAHE(clip_limit=2),IAASharpen(),IAAEmboss(),RandomBrightnessContrast(),], p=1),
+            #OneOf([MotionBlur(p=1),MedianBlur(blur_limit=3, p=1),Blur(blur_limit=3, p=1),], p=1),
+            ], p=0.2),
+        RandomRotate90(p=0.2),
+        HueSaturationValue(p=0.2),
+        HorizontalFlip(p=0.5),
+        #OneOf([OpticalDistortion(p=0.3),GridDistortion(p=.1),IAAPiecewiseAffine(p=0.3),], p=0.2),
+        Resize(224, 224),
+    ], p=p)
+'''
 
 
 class ImageFolderAlbum(torchvision.datasets.ImageFolder):
@@ -67,7 +99,7 @@ class ImageFolderAlbum(torchvision.datasets.ImageFolder):
         if self.target_transform is not None:
             target = self.target_transform(target)
 
-        return sample, int('fake' in path.lower())
+        return sample, int('\\fake\\' in path.lower())
 
 def load_img_dataset(data_path, batch_size, resize=256, normalize=torchvision.transforms.Normalize((1.0, 1.0, 1.0), (1.0, 1.0, 1.0))):
     train_dataset = ImageFolderAlbum(
@@ -88,7 +120,7 @@ def load_img_dataset(data_path, batch_size, resize=256, normalize=torchvision.tr
         batch_size=batch_size,
         num_workers=5,
         drop_last=True,
-        sampler=sampler,
+        sampler=BalancedBatchSampler(train_dataset),
         #pin_memory=True,
         shuffle=False
     )
@@ -96,16 +128,19 @@ def load_img_dataset(data_path, batch_size, resize=256, normalize=torchvision.tr
 
 
 def load_img_val_dataset(data_path, batch_size, resize=256, normalize=torchvision.transforms.Normalize((1.0, 1.0, 1.0), (1.0, 1.0, 1.0))):
-    train_dataset = torchvision.datasets.ImageFolder(
+    train_dataset = ImageFolderAlbum(
         root=data_path,
-        transform=torchvision.transforms.Compose([torchvision.transforms.Resize((resize, resize)),
-                                                  torchvision.transforms.ToTensor(),
-                                                  normalize])
+        transform=Compose([ 
+            Normalize(
+                mean=[0.485, 0.456, 0.406],
+                std=[0.229, 0.224, 0.225],
+            ),
+            ToTensor()])
     )
     train_loader = torch.utils.data.DataLoader(
         train_dataset,
         batch_size=batch_size,
         num_workers=5,
-        shuffle=True
+        shuffle=False
     )
     return train_loader
