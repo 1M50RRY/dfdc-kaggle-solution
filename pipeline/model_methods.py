@@ -85,9 +85,10 @@ def validate_img(net, X_test, y_train, loss, metric, device, batch_size,
                     #test_preds = nn.functional.sigmoid(net(X_batch.to(device)))
                 else:
                     test_preds = net(X_batch.to(device))
-                    
-                test_loss_value = loss(test_preds, y_batch).cpu().detach().numpy()
-                val_loss.append(test_loss_value.mean())
+
+
+                test_loss_value = F.binary_cross_entropy_with_logits(test_preds, y_batch).item() * batch_size
+                val_loss.append(test_loss_value)
                 
                 if print_results or show_results:
                     for i in range(int(len(test_preds) * 0.1)):
@@ -111,13 +112,11 @@ def validate_img(net, X_test, y_train, loss, metric, device, batch_size,
                     plt.show()
 
                 
-                metrics = metric(test_preds, y_batch)
-                val_metrics.append(metrics)
+                metrics = metric(torch.sigmoid(test_preds), y_batch)
+                val_metrics += metrics
                
         mean_metrics = np.asarray(val_metrics).mean()
-        mean_loss = np.asarray(val_loss).mean()
-        
-        
+        mean_loss = sum(val_loss) / (len(X_test) * batch_size)
 
         if checkpoint is not None and (mean_metrics >= checkpoint[1] or mean_loss <= checkpoint[0]):
             torch.save(net.state_dict(), str(mean_metrics) + ' ' + str(mean_loss) + '.pth')
@@ -132,7 +131,7 @@ def validate_img(net, X_test, y_train, loss, metric, device, batch_size,
 def train_img(net, loss, optimizer, scheduler, X_train, X_test, y_train, metric, device, val_metric, face_extractor, epochs=100, batch_size=100, 
           del_net=False, 
           useInference=False, 
-          inference=None, 
+          inference=False, 
           useScheduler=True,
           checkpoint=None,
           reverse=False
@@ -165,16 +164,6 @@ def train_img(net, loss, optimizer, scheduler, X_train, X_test, y_train, metric,
             if len(y_batch) > 0 and len(X_batch) == batch_size:
                 optimizer.zero_grad()
                 
-                '''y_batch = []
-                for filename in filenames:
-                    values = y_train[y_train.name == filename].label.values
-                    if len(values) == 0:
-                        y_batch.append(0)
-                    else:
-                        y_batch.append(values[0])
-                print(target)     '''
-                #y_batch = torch.FloatTensor([[int('real' not in sample[0])] for sample in samples]).to(device)
-
                 y_batch = list(y_batch.numpy())
                 for i in range(len(y_batch)):
                     y_batch[i] = [float(y_batch[i])]
@@ -186,34 +175,32 @@ def train_img(net, loss, optimizer, scheduler, X_train, X_test, y_train, metric,
                         #preds = net.inference(X_batch.to(device))
                     else:
                         preds = net(X_batch.to(device))
-                    #print(y_batch)
-                    #print(preds)
-                    metrics = metric(preds, y_batch)
+
+                    metrics = metric(torch.sigmoid(preds), y_batch)
                     train_metrics.append(metrics)
 
-                    loss_value = loss(preds, y_batch)
+                    loss_value = F.binary_cross_entropy_with_logits(preds, y_batch)#loss(preds, y_batch)
                     loss_value.backward()
 
                     optimizer.step()
                     
-                    train_loss.append(float(loss_value.mean()))
+                    train_loss.append(loss_value.item() * batch_size)
             else:
                 print("Unable to make an epoch: " + str(len(filenames)) + " found in y_train. " + str(len(X_batch)) + " batch size.")
 
        # reverse2 = not reverse
-        test_metric_value, test_loss_value = validate_vid_bf(net, X_test, y_train, val_metric[0], val_metric[1], device, 17, face_extractor, print_results=False, reverse=reverse, checkpoint=checkpoint)
-        '''validate_img(net, X_test, y_train, loss, metric, device, 10, 
-            print_results=False, 
-            inference=inference,
-            checkpoint=checkpoint,
-            reverse=False
-        )'''
+        test_metric_value, test_loss_value = validate_img(net, X_test, y_train, loss, metric, device, 10, inference=inference, checkpoint=checkpoint)
+									
+        #validate_vid_bf(net, X_test, y_train, val_metric[0], val_metric[1], device, 2, face_extractor, print_results=False, reverse=reverse, checkpoint=checkpoint)
         #validate_img(net, X_test, y_train, loss, metric, device, 10, inference=nn.Sigmoid(), checkpoint=checkpoint)
 											
         mean_metrics = np.asarray(train_metrics).mean()
-        mean_loss = np.asarray(train_loss).mean()
-        print('Train: metrics ', mean_metrics, 'loss ', mean_loss)
+        mean_loss = sum(train_loss) / (len(X_train) * batch_size)
         
+        print('Train: metrics ', mean_metrics, 'loss ', mean_loss)
+        print('Expected LB value:', test_loss_value + 0.08228, test_loss_value * 100 / 84)
+        print('Epoch:', epoch+1)
+
         test_loss_history.append(test_loss_value)
         test_metrics_history.append(test_metric_value)
 
