@@ -41,19 +41,18 @@ from torchsampler import ImbalancedDatasetSampler
 
 def strong_aug(p=1):
     return Compose([
-        OneOf([Downscale(scale_min=0.25, scale_max=0.75, p=1.0),JpegCompression(quality_lower=8, quality_upper=30, p=1)], p=0.3),
+        JpegCompression(quality_lower=8, quality_upper=30, p=0.2),
 
         OneOf([IAAAdditiveGaussianNoise(p=1), GaussNoise(p=1)], p=0.2),
-        OneOf([CLAHE(clip_limit=2,p=1), IAASharpen(p=1), IAAEmboss(p=1), RandomGamma(p=1)], p=0.2),
-
-        OneOf([RandomBrightnessContrast(p=1), RandomContrast(limit=0.2, p=1)], p=0.3),
+        #OneOf([CLAHE(clip_limit=2,p=1), IAASharpen(p=1), IAAEmboss(p=1), RandomGamma(p=1)], p=0.2),
+        #OneOf([RandomBrightnessContrast(p=1), RandomContrast(limit=0.2, p=1)], p=0.2),
 
         OneOf([MotionBlur(blur_limit=30,p=1),MedianBlur(blur_limit=5, p=1),Blur(blur_limit=5, p=1)], p=0.2),
-        OneOf([OpticalDistortion(p=0.3),GridDistortion(p=.1),IAAPiecewiseAffine(p=0.3)], p=0.2),
 
-        RandomRotate90(p=0.2),
+        #OneOf([OpticalDistortion(p=0.3),GridDistortion(p=.1),IAAPiecewiseAffine(p=0.3)], p=0.2),
+        #RandomRotate90(p=0.2),
 
-        HueSaturationValue(hue_shift_limit=10, p=0.3),
+        #HueSaturationValue(hue_shift_limit=10, p=0.2),
         HorizontalFlip(p=0.5),
     ], p=p)
 
@@ -95,7 +94,7 @@ def load_img_dataset(data_path, batch_size, resize=256, normalize=torchvision.tr
     train_loader = torch.utils.data.DataLoader(
         train_dataset,
         batch_size=batch_size,
-        num_workers=1,
+        num_workers=4,
         drop_last=True,
         #sampler=ImbalancedDatasetSampler(train_dataset),
         sampler=sampler,
@@ -126,7 +125,7 @@ def load_img_val_dataset(data_path, batch_size, resize=256, normalize=torchvisio
     train_loader = torch.utils.data.DataLoader(
         train_dataset,
         batch_size=batch_size,
-        num_workers=1,
+        num_workers=4,
         shuffle=False,
         #sampler=ImbalancedDatasetSampler(train_dataset),
         sampler=sampler,

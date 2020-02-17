@@ -198,7 +198,7 @@ def train_img(net, loss, optimizer, scheduler, X_train, X_test, y_train, metric,
         mean_loss = sum(train_loss) / (len(X_train) * batch_size)
         
         print('Train: metrics ', mean_metrics, 'loss ', mean_loss)
-        print('Expected LB value:', test_loss_value + 0.08228, test_loss_value * 100 / 84)
+        print('Expected LB value:', test_loss_value + 0.08228, test_loss_value * 100 / 83)
         print('Epoch:', epoch+1)
 
         test_loss_history.append(test_loss_value)

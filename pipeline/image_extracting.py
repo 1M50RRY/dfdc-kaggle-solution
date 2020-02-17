@@ -339,7 +339,7 @@ def predict_on_video(model, device, video_path, face_extractor, fast_mtcnn=None,
                     # padding if necessary.                    
                     #resized_face = isotropically_resize_image(face, input_size)
                     #resized_face = make_square_image(resized_face)
-                    resized_face = torchvision.transforms.Resize((224, 224))(Image.fromarray(face))
+                    resized_face = torchvision.transforms.Resize((256, 256))(Image.fromarray(face))
                     if n < batch_size:
                         x[n] = resized_face
                         n += 1
