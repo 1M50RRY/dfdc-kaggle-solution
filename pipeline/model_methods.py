@@ -119,7 +119,7 @@ def validate_img(net, X_test, y_train, loss, metric, device, batch_size,
         mean_loss = sum(val_loss) / (len(X_test) * batch_size)
 
         if checkpoint is not None and (mean_metrics >= checkpoint[1] or mean_loss <= checkpoint[0]):
-            torch.save(net.state_dict(), str(mean_metrics) + ' ' + str(mean_loss) + '.pth')
+            torch.save(net.state_dict(), net.__class__.__name__  + ' ' + str(mean_metrics) + ' ' + str(mean_loss) + '.pth')
             #torch.save(net, str(mean_metrics) + ' ' + str(mean_loss) + '.h5')
             
         print('Validation: metrics ', mean_metrics, 'loss ', mean_loss)
