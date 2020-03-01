@@ -59,61 +59,48 @@ def validate_img(net, X_test, y_train, loss, metric, device, batch_size,
                 dataloader_iterator = iter(X_test)
                 X_batch, y_batch = next(dataloader_iterator)
 
-            idx = batch_size * (batch_idx + 1)
-            samples = X_test.dataset.samples[idx - batch_size:idx]
-            filenames = [i[0].split('\\')[-1].split('.')[0] for i in samples]
 
             if reverse:
                 for i in range(len(y_batch)):
                     y_batch[i] = 1 if y_batch[i] == 0 else 0
 
-           # print(y_batch)
+            y_batch = torch.FloatTensor(y_batch).to(device)
 
-            if len(filenames) > 0:
-                #y_batch = torch.FloatTensor([[int('real' not in sample[0])] for sample in samples]).to(device)
-                '''torch.tensor([y_train[y_train.name == filename].label.values[0] 
-                                        for filename in filenames]).to(device)'''
-
-                y_batch = list(y_batch.numpy())
-                for i in range(len(y_batch)):
-                    y_batch[i] = [float(y_batch[i])]
-                y_batch = torch.FloatTensor(y_batch).to(device)
-
-                if inference:
-                    #test_preds = net.inference(X_batch.to(device))
-                    test_preds = inference(net(X_batch.to(device)))
-                    #test_preds = nn.functional.sigmoid(net(X_batch.to(device)))
-                else:
-                    test_preds = net(X_batch.to(device))
+            if inference:
+                #test_preds = net.inference(X_batch.to(device))
+                test_preds = inference(net(X_batch.to(device)))
+                #test_preds = nn.functional.sigmoid(net(X_batch.to(device)))
+            else:
+                test_preds = net(X_batch.to(device))
 
 
-                test_loss_value = F.binary_cross_entropy_with_logits(test_preds, y_batch).item() * batch_size
-                val_loss.append(test_loss_value)
-                
-                if print_results or show_results:
-                    for i in range(int(len(test_preds) * 0.1)):
-                        if show_results:
-                            img = X_batch[i]
-                            plt.title(str(float(test_preds[i])) + ', ' + str(float(y_batch[i])) + ' | ' + filenames[i])
-                            #plt.title(str(float(test_preds[i][0])) + ', ' + str(float(y_batch[i])))
-                            plt.imshow(img.permute(1, 2, 0).numpy())
-                            plt.show()
-                            plt.pause(0.001)
-                        if print_results:
-                            print(test_preds[i], y_batch[i])
-                
-                if show_graphic:
-                    submission = []
-                    for i in range(len(test_preds)):
-                        submission.append([test_preds[i][1].cpu()])
-                        #submission.append([test_preds[i][0].cpu()])
-                    submission = pd.DataFrame(submission, columns=['label'])
-                    plt.hist(submission.label, 20)
-                    plt.show()
+            test_loss_value = F.binary_cross_entropy_with_logits(test_preds, y_batch).item() * batch_size
+            val_loss.append(test_loss_value)
+            
+            if print_results or show_results:
+                for i in range(int(len(test_preds) * 0.1)):
+                    if show_results:
+                        img = X_batch[i]
+                        plt.title(str(float(test_preds[i])) + ', ' + str(float(y_batch[i])) + ' | ' + filenames[i])
+                        #plt.title(str(float(test_preds[i][0])) + ', ' + str(float(y_batch[i])))
+                        plt.imshow(img.permute(1, 2, 0).numpy())
+                        plt.show()
+                        plt.pause(0.001)
+                    if print_results:
+                        print(test_preds[i], y_batch[i])
+            
+            if show_graphic:
+                submission = []
+                for i in range(len(test_preds)):
+                    submission.append([test_preds[i][1].cpu()])
+                    #submission.append([test_preds[i][0].cpu()])
+                submission = pd.DataFrame(submission, columns=['label'])
+                plt.hist(submission.label, 20)
+                plt.show()
 
-                
-                metrics = metric(torch.sigmoid(test_preds), y_batch)
-                val_metrics += metrics
+            
+            metrics = metric(torch.sigmoid(test_preds), y_batch)
+            val_metrics += metrics
                
         mean_metrics = np.asarray(val_metrics).mean()
         mean_loss = sum(val_loss) / (len(X_test) * batch_size)
@@ -158,24 +145,19 @@ def train_img(net, loss, optimizer, scheduler, X_train, X_test, y_train, metric,
                 for i in range(len(y_batch)):
                     y_batch[i] = 1 if y_batch[i] == 0 else 0
                 
-            idx = batch_size * (batch_idx + 1)
-            samples = X_train.dataset.samples[idx - batch_size:idx]
-            filenames = [i[0].split('\\')[-1].split('.')[0] for i in samples]
             if len(y_batch) > 0 and len(X_batch) == batch_size:
                 optimizer.zero_grad()
                 
-                y_batch = list(y_batch.numpy())
-                for i in range(len(y_batch)):
-                    y_batch[i] = [float(y_batch[i])]
-                y_batch = torch.FloatTensor(y_batch).to(device)
-                
                 if (len(X_batch) == len(y_batch)):
+
+                    y_batch = torch.FloatTensor(y_batch).to(device)
+
                     if useInference:
                         preds = inference(net(X_batch.to(device)))
                         #preds = net.inference(X_batch.to(device))
                     else:
                         preds = net(X_batch.to(device))
-
+                    
                     metrics = metric(torch.sigmoid(preds), y_batch)
                     train_metrics.append(metrics)
 
@@ -183,6 +165,9 @@ def train_img(net, loss, optimizer, scheduler, X_train, X_test, y_train, metric,
                     loss_value.backward()
 
                     optimizer.step()
+
+                    if useScheduler:
+                        scheduler.step()
                     
                     train_loss.append(loss_value.item() * batch_size)
             else:
@@ -204,8 +189,7 @@ def train_img(net, loss, optimizer, scheduler, X_train, X_test, y_train, metric,
         test_loss_history.append(test_loss_value)
         test_metrics_history.append(test_metric_value)
 
-        if useScheduler:
-            scheduler.step(float(mean_loss))
+        
         
     if del_net:
         del net

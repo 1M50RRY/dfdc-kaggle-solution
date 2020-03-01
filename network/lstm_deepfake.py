@@ -23,29 +23,27 @@ import math
 import torch.utils.model_zoo as model_zoo
 from torch.nn import init
 from network.models import return_pytorch04_xception
+from efficientnet_pytorch import EfficientNet
 
 class LSTMDF(nn.Module):
-    """
-    Simple transfer learning model that takes an imagenet pretrained model with
-    a fc layer as base model and retrains a new fc layer for num_out_classes
-    """
-    def __init__(self, dropout=0.0):
+    def __init__(self, cnn, in_features, dropout=0.0):
         super(LSTMDF, self).__init__()
 
         self.dropout = dropout
-
-        self.model = return_pytorch04_xception()
-        self.lstm = nn.LSTM(1000, 512, 2, dropout=self.dropout, batch_first = True)
+        self.cnn = cnn
+        self.lstm = nn.LSTM(in_features, 256, 2, dropout=self.dropout, batch_first = True)
         self.dp = nn.Dropout(self.dropout)
-        self.fc = nn.Linear(512, 2)
+        self.fc = nn.Linear(256, 1)
 
     def forward(self, x):
-        x = self.model(x)
-        x = x.unsqueeze(0)
+
+        batch_size, C, H, W = x.size()
+        x = x.view(batch_size, C, H, W)
+        x = self.cnn(x)
+        x = x.view(batch_size, 1, -1)
         x, _ = self.lstm(x)
-        x = x.squeeze(0)
-        self.dp(x)
-        x = self.fc(x)
+        x = x.squeeze(1)
+        x = self.fc(self.dp(x))
         
         return x
 

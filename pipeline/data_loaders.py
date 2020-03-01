@@ -32,26 +32,27 @@ from albumentations.pytorch import ToTensor
 from albumentations import (
     HorizontalFlip, IAAPerspective, ShiftScaleRotate, CLAHE, RandomRotate90,
     Transpose, ShiftScaleRotate, Blur, OpticalDistortion, GridDistortion, HueSaturationValue,
-    IAAAdditiveGaussianNoise, GaussNoise, MotionBlur, MedianBlur, RandomBrightnessContrast, IAAPiecewiseAffine,
+    IAAAdditiveGaussianNoise, GaussNoise, MotionBlur, MedianBlur, RandomBrightnessContrast, RandomBrightness, IAAPiecewiseAffine,
     IAASharpen, IAAEmboss, Flip, OneOf, Compose, ImageCompression, Resize, RandomScale, RandomFog, RandomShadow, Downscale, JpegCompression, CenterCrop,
-    RandomGamma, RandomContrast, Cutout, Lambda, Cutout, Posterize
+    RandomGamma, RandomContrast, Cutout, Lambda, Cutout, Posterize, GaussianBlur
 )
 from pipeline.helpers.balanced_batch_sampler import BalancedBatchSampler, make_weights_for_balanced_classes
 from torchsampler import ImbalancedDatasetSampler
 
 def strong_aug(p=1):
     return Compose([
-        OneOf([JpegCompression(quality_lower=15, quality_upper=50, p=1), Downscale(scale_min=0.5, scale_max=0.9, p=1)], p=0.5),
-        OneOf([IAAAdditiveGaussianNoise(p=1), GaussNoise(p=1)], p=0.12),
-        #OneOf([CLAHE(clip_limit=2,p=1), IAASharpen(p=1), IAAEmboss(p=1)], p=0.3),
-        RandomGamma(p=0.15),
-        RandomBrightnessContrast(p=0.15),
-        #OneOf([MotionBlur(blur_limit=5,p=1),MedianBlur(blur_limit=5, p=1),Blur(blur_limit=5, p=1)], p=0.2),
-        #OpticalDistortion(p=0.25),
+        OneOf([JpegCompression(quality_lower=15, quality_upper=50, p=1), Downscale(scale_min=0.5, scale_max=0.9, p=1)], p=0.65),
+        OneOf([IAAAdditiveGaussianNoise(p=1), GaussNoise(p=1)], p=0.2),
+        #OneOf([CLAHE(clip_limit=2,p=1), IAASharpen(p=1), IAAEmboss(p=1)], p=0.15),
+        #RandomGamma(p=0.3),
+        RandomBrightness(p=0.2),
+        #GaussianBlur(p=0.2),
+        OneOf([MotionBlur(blur_limit=5,p=1),MedianBlur(blur_limit=5, p=1),Blur(blur_limit=5, p=1)], p=0.2),
+        #OpticalDistortion(p=0.2),
         #HueSaturationValue(hue_shift_limit=10, p=0.2),
         #RandomRotate90(p=0.2),
         HorizontalFlip(p=0.5),
-        #ShiftScaleRotate(p=0.2),
+        #ShiftScaleRotate(shift_limit=0.1, scale_limit=0.1, rotate_limit=15, border_mode=2, p=0.2),
         #Cutout(p=0.2),
         #RandomFog(p=0.2),
         #Posterize(p=0.2)
@@ -71,21 +72,21 @@ class ImageFolderAlbum(torchvision.datasets.ImageFolder):
         if self.target_transform is not None:
             target = self.target_transform(target)
 
-        return sample, int('\\fake\\' in path.lower())
+        return sample, torch.FloatTensor([float('\\fake\\' in path.lower())])
 
 
 def load_img_dataset(data_path, batch_size, resize=256, normalize=torchvision.transforms.Normalize((1.0, 1.0, 1.0), (1.0, 1.0, 1.0))):
     train_dataset = ImageFolderAlbum(
         root=data_path,
         transform=Compose([
-            Resize(260, 260),
+            Resize(256, 256),
             #CenterCrop(240, 240),
             strong_aug(),
             Normalize(
                 mean=[0.485, 0.456, 0.406],
                 std=[0.229, 0.224, 0.225],
             ),
-            #Resize(240, 240),
+            RandomCrop(224, 224),
             ToTensor(),
             #Lambda(lambda img: img * 2.0 - 1.0),
             ])
@@ -113,7 +114,7 @@ def load_img_val_dataset(data_path, batch_size, resize=256, normalize=torchvisio
     train_dataset = ImageFolderAlbum(
         root=data_path,
         transform=Compose([
-            Resize(260, 260),
+            Resize(256, 256),
             #CenterCrop(240, 240),
             Normalize(
                 mean=[0.485, 0.456, 0.406],
@@ -133,7 +134,7 @@ def load_img_val_dataset(data_path, batch_size, resize=256, normalize=torchvisio
         batch_size=batch_size,
         num_workers=4,
         shuffle=False,
-        #sampler=ImbalancedDatasetSampler(train_dataset),
+        #sampler=ImbalancedDatasetSampler(train_dataset, num_samples=5000),
         sampler=sampler,
         #sampler=BalancedBatchSampler(train_dataset),
         pin_memory=True,

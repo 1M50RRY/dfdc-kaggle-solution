@@ -16,7 +16,6 @@ from IPython.display import clear_output
 import matplotlib.pyplot as plt
 import tqdm
 from PIL import ImageFilter, Image
-import torchvision.models as models
 import torch.nn as nn
 import torch.nn.functional as F
 import math
@@ -418,7 +417,7 @@ def crop_faces(video_path, face_extractor, batch_size=1, input_size=256):
                     # padding if necessary.                    
                     #resized_face = isotropically_resize_image(face, input_size)
                     #resized_face = make_square_image(resized_face)
-                    resized_face = torchvision.transforms.Resize((input_size, input_size))(Image.fromarray(face))
+                    resized_face = cv2.resize(face, (input_size, input_size))#torchvision.transforms.Resize((input_size, input_size))(Image.fromarray(face))
                     if n < batch_size:
                         x[n] = resized_face
                         n += 1
@@ -432,7 +431,7 @@ def crop_faces(video_path, face_extractor, batch_size=1, input_size=256):
                     #n += 1
 
             if n > 0:
-                return x[:n][0]
+                return x[:n]
 
     except Exception as e:
         print("Prediction error on video %s: %s" % (video_path, str(e)))
