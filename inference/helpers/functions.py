@@ -1,3 +1,12 @@
+import os, sys, time
+import cv2
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from imutils.video import FileVideoStream 
+from torchvision.transforms import Normalize
+
 def disable_grad(model):
     for parameter in model.parameters():
         parameter.requires_grad = False
@@ -17,7 +26,7 @@ def weight_preds(preds, weights):
     return torch.FloatTensor(final_preds)
 
 
-def predict_on_video(video_path, batch_size):
+def predict_on_video(face_extractor, normalize_transform, stack_models, models, meta_models, weigths, video_path, batch_size, input_size, device):
     try:
         # Find the faces for N frames in the video.
         faces = face_extractor.process_video(video_path)
@@ -85,4 +94,3 @@ def predict_on_video(video_path, batch_size):
     
     return 0.5
 
-    
