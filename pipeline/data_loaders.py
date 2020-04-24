@@ -3,38 +3,16 @@ import torch.nn as nn
 import random
 import numpy as np
 import pandas as pd
-import json
 import cv2
-import os
-from sklearn import preprocessing
-from sklearn.model_selection import train_test_split
-from functools import partial
-from dataclasses import dataclass
-from collections import OrderedDict
 import torchvision
-from IPython.display import clear_output
-import matplotlib.pyplot as plt
 import tqdm
-from PIL import ImageFilter, Image
-import torchvision.models as models
-import torch.nn as nn
-import torch.nn.functional as F
-import math
-import torch.utils.model_zoo as model_zoo
-from torch.nn import init
-from facenet_pytorch import MTCNN, InceptionResnetV1
-import gc
-import PIL
+from PIL import Image
 from torch.utils.data import Dataset
-from torchvision import transforms
 from albumentations import RandomCrop, Normalize
 from albumentations.pytorch import ToTensor
 from albumentations import (
-    HorizontalFlip, IAAPerspective, ShiftScaleRotate, CLAHE, RandomRotate90,
-    Transpose, ShiftScaleRotate, Blur, OpticalDistortion, GridDistortion, HueSaturationValue,
-    IAAAdditiveGaussianNoise, GaussNoise, MotionBlur, MedianBlur, RandomBrightnessContrast, RandomBrightness, IAAPiecewiseAffine,
-    IAASharpen, IAAEmboss, Flip, OneOf, Compose, ImageCompression, Resize, RandomScale, RandomFog, RandomShadow, Downscale, JpegCompression, CenterCrop,
-    RandomGamma, RandomContrast, Cutout, Lambda, Cutout, Posterize, GaussianBlur
+    HorizontalFlip, Blur, IAAAdditiveGaussianNoise, GaussNoise, MotionBlur, MedianBlur, RandomBrightness, OneOf, Compose, 
+    ImageCompression, Resize, RandomScale, Downscale, JpegCompression, CenterCrop, GaussianBlur
 )
 from pipeline.helpers.balanced_batch_sampler import BalancedBatchSampler, make_weights_for_balanced_classes
 from pipeline.helpers.imbalanced_batch_sampler import ImbalancedDatasetSampler
@@ -43,19 +21,9 @@ def strong_aug(p=1):
     return Compose([
         OneOf([JpegCompression(quality_lower=15, quality_upper=40, p=1), Downscale(scale_min=0.5, scale_max=0.9, p=1)], p=0.5),
         #OneOf([IAAAdditiveGaussianNoise(p=1), GaussNoise(p=1)], p=0.15),    
-        #OneOf([CLAHE(clip_limit=2,p=1), IAASharpen(p=1), IAAEmboss(p=1)], p=0.15),
-        #RandomGamma(p=0.3),
-        #RandomBrightness(p=0.15),
-        #GaussianBlur(p=0.15),
+        RandomBrightness(p=0.15),
         #OneOf([MotionBlur(blur_limit=5,p=1),MedianBlur(blur_limit=5, p=1),Blur(blur_limit=5, p=1)], p=0.15),
-        #OpticalDistortion(p=0.2),
-        #HueSaturationValue(hue_shift_limit=10, p=0.2),
-        #RandomRotate90(p=0.1),
         HorizontalFlip(p=0.5),
-        #ShiftScaleRotate(shift_limit=0.1, scale_limit=0.1, rotate_limit=15, border_mode=2, p=0.2),
-        #Cutout(p=0.2),
-        #RandomFog(p=0.2),
-        #Posterize(p=0.2)
     ], p=p)
 
 
@@ -100,7 +68,7 @@ def load_img_dataset(data_path, batch_size, resize=None, crop=None, num_samples=
     if crop is not None:
         transform = Compose([
             Resize(256, 256),
-            CenterCrop(crop, crop),
+            RandomCrop(crop, crop),
             strong_aug(),
             Normalize(
                 mean=[0.485, 0.456, 0.406],
@@ -113,12 +81,6 @@ def load_img_dataset(data_path, batch_size, resize=None, crop=None, num_samples=
         root=data_path,
         transform=transform
     )
-
-    '''weights = make_weights_for_balanced_classes(
-        train_dataset.imgs, len(train_dataset.classes))
-    weights = torch.DoubleTensor(weights)
-    sampler = torch.utils.data.sampler.WeightedRandomSampler(
-        weights, len(weights))'''
 
     sampler = None
 
@@ -133,18 +95,17 @@ def load_img_dataset(data_path, batch_size, resize=None, crop=None, num_samples=
         num_workers=1,
         drop_last=True,
         sampler=sampler,
-        #sampler=BalancedBatchSampler(train_dataset),
         pin_memory=True,
         shuffle=False
     )
     return train_loader
 
 
-def load_img_val_dataset(data_path, batch_size):
+def load_img_val_dataset(data_path, batch_size, resize=256):
     train_dataset = ImageFolderAlbum(
         root=data_path,
         transform=Compose([
-            Resize(256, 256),
+            Resize(resize, resize),
             Normalize(
                 mean=[0.485, 0.456, 0.406],
                 std=[0.229, 0.224, 0.225],
@@ -152,19 +113,19 @@ def load_img_val_dataset(data_path, batch_size):
             ToTensor(),
             ])
     )
+
     weights = make_weights_for_balanced_classes(
         train_dataset.imgs, len(train_dataset.classes))
     weights = torch.DoubleTensor(weights)
     sampler = torch.utils.data.sampler.WeightedRandomSampler(
         weights, len(weights))
+
     train_loader = torch.utils.data.DataLoader(
         train_dataset,
         batch_size=batch_size,
         num_workers=1,
         shuffle=False,
-        #sampler=ImbalancedDatasetSampler(train_dataset, num_samples=5000),
         sampler=sampler,
-        #sampler=BalancedBatchSampler(train_dataset),
         pin_memory=True,
         drop_last=False
     )
